@@ -13,9 +13,22 @@ spec:
     metadata:
       labels:
         {{- include "aiops-quality-service.selectorLabels" . | nindent 8 }}
-      {{- with .Values.podAnnotations }}
+      {{- $loki := .Values.loki }}
+      {{- if or .Values.podAnnotations (and $loki $loki.promtailScrape) }}
       annotations:
+        {{- if and $loki $loki.promtailScrape }}
+        loki.grafana.com/scrape: "true"
+        {{- with $loki.tenant }}
+        loki.grafana.com/tenant: {{ . | quote }}
+        {{- end }}
+        {{- $job := default (include "aiops-quality-service.fullname" .) $loki.jobName }}
+        {{- $namespace := default .Release.Namespace $loki.namespace }}
+        {{- $labels := default (printf "job=%s,namespace=%s" $job $namespace) $loki.labels }}
+        loki.grafana.com/labels: {{ $labels | quote }}
+        {{- end }}
+        {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- end }}
     spec:
       serviceAccountName: {{ include "aiops-quality-service.serviceAccountName" . }}

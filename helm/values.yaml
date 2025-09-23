@@ -49,6 +49,10 @@ prometheus:
 loki:
   enabled: true
   promtailScrape: true
+  tenant: ""
+  jobName: ""
+  namespace: ""
+  labels: ""
 
 nodeSelector: {}
 
