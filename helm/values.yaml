@@ -1,5 +1,8 @@
 replicaCount: 1
 
+nameOverride: ""
+fullnameOverride: aiops-quality-service
+
 image:
   repository: registry.example.com/aiops-quality/service
   tag: latest

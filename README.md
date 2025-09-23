@@ -28,9 +28,9 @@ requirements.txt                  # Python залежності
 ## Опис архітектури
 
 1. **Inference сервіс** — FastAPI (`app/main.py`), завантажує модель з `model/artifacts/model.pkl`, логування у stdout, метрики через `prometheus_client`, детектор дрейфу на базі `alibi-detect (MMDDrift)` з референсом `reference.npy`.
-2. **Drift детектор** — `alibi_detect.cd.MMDDrift`, при спрацюванні інкрементує Prometheus лічильник, логування повідомлення та (опціонально) викликає GitLab webhook для retrain.
+2. **Drift детектор** — `alibi_detect.cd.MMDDrift` з TensorFlow backend (див. залежність `tensorflow-cpu` у `requirements.txt`), при спрацюванні інкрементує Prometheus лічильник, логування повідомлення та (опціонально) викликає GitLab webhook для retrain.
 3. **Retrain CI** — `.gitlab-ci.yml` описує job `retrain-model`, який тренує модель, збирає Docker image, пушить у реєстр та оновлює версію чарта/тег образу (створює гілку `deploy/*`).
-4. **Helm + ArgoCD** — Helm чарт у `helm/` описує деплой із прометей анотаціями, середовищем для дрейфу; ArgoCD Application (`argocd/application.yaml`) вмикає `auto-sync` + `selfHeal` та створює namespace.
+4. **Helm + ArgoCD** — Helm чарт у `helm/` описує деплой із прометей анотаціями, середовищем для дрейфу; значення за замовчанням фіксують `fullnameOverride: aiops-quality-service`, щоб ім'я сервісу збігалося з інструкціями. ArgoCD Application (`argocd/application.yaml`) вмикає `auto-sync` + `selfHeal` та створює namespace.
 5. **Моніторинг** — Prometheus збирає `/metrics`, Grafana дешборд з запитами, latency, drift alerts; Loki/Promtail зчитують stdout контейнера (конфіг логування в README).
 
 ## Локальний запуск FastAPI
@@ -67,7 +67,7 @@ curl -X POST "http://localhost:8000/predict" \
 
 ## Метрики та Grafana
 
-1. Prometheus scrape конфіг: `prometheus/additionalScrapeConfigs.yaml`. Додайте його в `prometheus.yml` та перезапустіть Prometheus.
+1. Prometheus scrape конфіг: `prometheus/additionalScrapeConfigs.yaml`. Додайте його в `prometheus.yml` та перезапустіть Prometheus. За потреби оновіть `targets` відповідно до свого namespace/домену (за замовчанням сервіс доступний як `aiops-quality-service.aiops-quality.svc.cluster.local:8000`).
 2. Grafana імпорт: імпортуйте `grafana/dashboards.json` (JSON). Панелі відображають кількість запитів, latency (p95), останній drift score та кількість спрацювань дрейфу.
 3. Для перегляду метрик локально: `curl http://localhost:8000/metrics`.
 
@@ -108,7 +108,7 @@ curl -X POST "http://localhost:8000/predict" \
 
 ## Перевірка повної системи
 
-1. **kubectl port-forward**: `kubectl -n aiops-quality port-forward svc/aiops-quality-service 8000:8000`, перевірити `/predict`.
+1. **kubectl port-forward**: `kubectl -n aiops-quality port-forward svc/aiops-quality-service 8000:8000`, перевірити `/predict`. Якщо змінювали `fullnameOverride`, підставте актуальне ім'я сервісу.
 2. **Логи**: `kubectl logs -l app.kubernetes.io/name=aiops-quality-service -n aiops-quality` — присутні вхідні дані, результати та повідомлення про дрейф.
 3. **Drift alert**: форсуйте аномальні дані, спостерігайте в Grafana панель `Drift Events`.
 4. **Grafana**: імпортуйте dashboard, переконайтесь у відображенні трафіку/latency/alerts.
