@@ -1,0 +1,62 @@
+loki-stack:
+  grafana:
+    enabled: false
+  promtail:
+    enabled: false
+  prometheus:
+    enabled: false
+  loki:
+    fullnameOverride: loki
+    persistence:
+      enabled: false
+    service:
+      type: ClusterIP
+
+promtail:
+  fullnameOverride: promtail
+  loki:
+    serviceName: loki
+    servicePort: 3100
+  tolerations: []
+  podAnnotations: {}
+
+grafana:
+  fullnameOverride: grafana
+  adminUser: admin
+  adminPassword: admin
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboardsConfigMap: aiops-quality-monitoring-dashboards
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+        - name: Prometheus
+          type: prometheus
+          access: proxy
+          url: http://prometheus-k8s.monitoring.svc.cluster.local:9090
+          isDefault: true
+        - name: Loki
+          type: loki
+          access: proxy
+          url: http://loki.monitoring.svc.cluster.local:3100
+  service:
+    type: ClusterIP
+    port: 80
+  ingress:
+    enabled: false
+  sidecar:
+    dashboards:
+      enabled: false
+    datasources:
+      enabled: false
