@@ -1,0 +1,12 @@
+apiVersion: v2
+name: aiops-quality-service
+version: 0.1.0
+appVersion: "1.0.0"
+description: Helm chart for the AIOps quality FastAPI inference service
+keywords:
+  - fastapi
+  - mlops
+  - drift-detection
+maintainers:
+  - name: AIOps Team
+    email: aiops@example.com

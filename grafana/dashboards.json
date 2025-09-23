@@ -1,0 +1,76 @@
+{
+    "dashboard": {
+        "id": null,
+        "uid": "aiops-quality",
+        "title": "AIOps Quality Service",
+        "timezone": "browser",
+        "schemaVersion": 36,
+        "version": 1,
+        "panels": [
+            {
+                "type": "graph",
+                "title": "Prediction Requests per Minute",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "sum(rate(model_predictions_total[1m]))",
+                        "legendFormat": "requests/min"
+                    }
+                ]
+            },
+            {
+                "type": "stat",
+                "title": "Last Drift Score",
+                "gridPos": {
+                    "h": 8,
+                    "w": 6,
+                    "x": 12,
+                    "y": 0
+                },
+                "targets": [
+                    {
+                        "expr": "model_latest_drift_score"
+                    }
+                ]
+            },
+            {
+                "type": "graph",
+                "title": "Prediction Latency (p95)",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 0,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "histogram_quantile(0.95, sum(rate(model_prediction_seconds_bucket[5m])) by (le))",
+                        "legendFormat": "p95"
+                    }
+                ]
+            },
+            {
+                "type": "graph",
+                "title": "Drift Events",
+                "gridPos": {
+                    "h": 8,
+                    "w": 12,
+                    "x": 12,
+                    "y": 8
+                },
+                "targets": [
+                    {
+                        "expr": "increase(model_drift_events_total[5m])",
+                        "legendFormat": "drift detections"
+                    }
+                ]
+            }
+        ]
+    },
+    "overwrite": true
+}
