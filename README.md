@@ -40,15 +40,11 @@ requirements.txt               # Python залежності
 ### 1. Підготовка локального середовища
 
 ```bash
-git clone <ваш-git-url>/aiops-quality-project.git
-cd aiops-quality-project
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -r requirements.txt
 ```
-
-> Якщо потрібна GPU/CPU специфіка — оновіть `requirements.txt` перед встановленням.
 
 ### 2. Локальний запуск FastAPI сервісу
 

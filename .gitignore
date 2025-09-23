@@ -145,4 +145,4 @@ __pycache__/
 terraform.tfvars
 postgresql-16.7.15.tgz
 
-venv/
+.venv/
