@@ -36,19 +36,19 @@ requirements.txt                  # Python залежності
 ## Локальний запуск FastAPI
 
 1. Встановіть залежності:
-   ```bash
-   python -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
 2. Запустіть сервіс:
-   ```bash
-   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-   ```
+```bash
+uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+```
 3. Перевірка healthcheck:
-   ```bash
-   curl http://localhost:8000/healthz
-   ```
+```bash
+curl http://localhost:8000/healthz
+```
 
 ## Тестовий запит на /predict
 
@@ -73,14 +73,17 @@ curl -X POST "http://localhost:8000/predict" \
 
 ## Перевірка GitLab CI retrain
 
+Job `retrain-model` більше не запускається автоматично при `push` — його потрібно запускати вручну або через webhook/API.
+
 1. Установіть змінні `CI_REGISTRY`, `CI_REGISTRY_USER`, `CI_REGISTRY_PASSWORD`, `GITLAB_USER_EMAIL`, `GITLAB_USER_NAME` у GitLab.
-2. Запустіть pipeline вручну (`Run pipeline` → `retrain-model`).
+2. Запустіть pipeline вручну через UI (`Run pipeline`). Job `retrain-model` з'явиться в статусі *manual* — натисніть `Play`, щоб розпочати тренування. Або скористайтеся GitLab trigger/API (наприклад, `CI_PIPELINE_SOURCE=trigger`/`api`), тоді job стартує автоматично.
 3. Job виконає:
    - `python model/train.py` — генерує нову модель і `reference.npy`;
    - `docker build/push` — новий образ з тегом `CI_COMMIT_SHORT_SHA`;
    - `yq` — оновлює тег образу та версію чарта;
    - пушить зміни у гілку `deploy/<ref>`.
-4. Перевірте артефакти job (нові артефакти + оновлені YAML).
+4. Якщо модель, артефакти та Helm файли не змінилися, job повідомить про відсутність змін і пропустить `git commit`/`push`.
+5. Перевірте артефакти job (нові артефакти + оновлені YAML).
 
 ## Перевірка Helm + ArgoCD
 
@@ -96,14 +99,18 @@ curl -X POST "http://localhost:8000/predict" \
 ## Оновлення моделі вручну
 
 1. Запустіть retrain локально:
-   ```bash
-   python model/train.py --test-size 0.2 --random-state 42
-   ```
+
+```bash
+python model/train.py --test-size 0.2 --random-state 42
+```
+
 2. Перебудуйте образ:
-   ```bash
-   docker build -t <registry>/aiops-quality-service:<tag> .
-   docker push <registry>/aiops-quality-service:<tag>
-   ```
+
+```bash
+docker build -t <registry>/aiops-quality-service:<tag> .
+docker push <registry>/aiops-quality-service:<tag>
+```
+
 3. Оновіть `helm/values.yaml` (`image.tag`) та `helm/Chart.yaml` (`version`), закоміть, ArgoCD підхопить нову версію.
 
 ## Перевірка повної системи

@@ -13,11 +13,11 @@ retrain-model:
     - docker:24.0.5-dind
   rules:
     - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "pipeline"'
     - if: '$CI_PIPELINE_SOURCE == "trigger"'
     - if: '$CI_PIPELINE_SOURCE == "api"'
-    - if: '$CI_PIPELINE_SOURCE == "push"'
   before_script:
     - apk add --no-cache python3 py3-pip git curl
     - pip3 install --no-cache-dir -r requirements.txt
@@ -36,8 +36,12 @@ retrain-model:
         git config --global user.name "$GITLAB_USER_NAME"
         git checkout -B "$CI_COMMIT_REF_NAME"
         git add model/artifacts helm/values.yaml helm/Chart.yaml
-        git commit -m "chore: retrain model and update chart"
-        git push --set-upstream origin "$CI_COMMIT_REF_NAME"
+        if git diff --cached --quiet; then
+          echo "No changes detected in artifacts. Skipping commit and push."
+        else
+          git commit -m "chore: retrain model and update chart"
+          git push --set-upstream origin "$CI_COMMIT_REF_NAME"
+        fi
       else
         echo "Skipping git push because CI environment variables are missing"
       fi

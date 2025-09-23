@@ -4,7 +4,7 @@ nameOverride: ""
 fullnameOverride: aiops-quality-service
 
 image:
-  repository: $CI_REGISTRY_IMAGE/aiops-quality-service
+  repository: registry.gitlab.com/goit-neo/mlops-final-project/aiops-quality-service
   tag: latest
   pullPolicy: IfNotPresent
 
