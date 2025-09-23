@@ -114,7 +114,7 @@ kubectl logs -l app.kubernetes.io/name=aiops-quality-service -n aiops-quality -f
 ### 7. Побудова та публікація Docker образу
 
 ```bash
-export REGISTRY=<ваш-реєстр>
+export REGISTRY=registry.gitlab.com/goit-neo/mlops-final-project/aiops-quality-service
 export IMAGE_TAG=$(date +%Y%m%d%H%M)
 docker login "$REGISTRY"
 docker build -t "$REGISTRY/aiops-quality-service:$IMAGE_TAG" .
