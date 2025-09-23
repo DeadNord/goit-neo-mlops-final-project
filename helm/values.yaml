@@ -4,7 +4,7 @@ nameOverride: ""
 fullnameOverride: aiops-quality-service
 
 image:
-  repository: registry.example.com/aiops-quality/service
+  repository: $CI_REGISTRY_IMAGE/aiops-quality-service
   tag: latest
   pullPolicy: IfNotPresent
 

@@ -15,10 +15,12 @@ retrain-model:
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     - if: '$CI_PIPELINE_SOURCE == "pipeline"'
-    - if: '$CI_PIPELINE_SOURCE == "webhook"'
+    - if: '$CI_PIPELINE_SOURCE == "trigger"'
+    - if: '$CI_PIPELINE_SOURCE == "api"'
+    - if: '$CI_PIPELINE_SOURCE == "push"'
   before_script:
     - apk add --no-cache python3 py3-pip git curl
-    - pip3 install --no-cache-dir -r aiops-quality-project/requirements.txt
+    - pip3 install --no-cache-dir -r requirements.txt
     - curl -L https://github.com/mikefarah/yq/releases/download/v4.40.5/yq_linux_amd64 -o /usr/local/bin/yq
     - chmod +x /usr/local/bin/yq
     - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$CI_REGISTRY"
@@ -32,10 +34,10 @@ retrain-model:
       if [ -n "$CI" ]; then
         git config --global user.email "$GITLAB_USER_EMAIL"
         git config --global user.name "$GITLAB_USER_NAME"
-        git checkout -B "deploy/$CI_COMMIT_REF_NAME"
+        git checkout -B "$CI_COMMIT_REF_NAME"
         git add model/artifacts helm/values.yaml helm/Chart.yaml
         git commit -m "chore: retrain model and update chart"
-        git push --set-upstream origin "deploy/$CI_COMMIT_REF_NAME"
+        git push --set-upstream origin "$CI_COMMIT_REF_NAME"
       else
         echo "Skipping git push because CI environment variables are missing"
       fi
