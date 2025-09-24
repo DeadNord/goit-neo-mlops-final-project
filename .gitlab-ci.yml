@@ -33,7 +33,7 @@ retrain-model:
 build-image:
   stage: build
   <<: *reuse-docker
-  needs: ["retrain-model"] # быстрее, чем dependencies
+  needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
     - docker build -f docker/Dockerfile.app -t "$IMAGE:$VERSION" .
@@ -45,36 +45,42 @@ bump-helm-and-tag:
   stage: deploy
   image: alpine:3.19
   before_script:
-    - apk add --no-cache git sed
-    - git config user.name "ci-bot"
-    - git config user.email "ci@example.com"
-    # гарантируем полную историю и теги
+    - apk add --no-cache git openssh-client sed
+    # ----- SSH setup -----
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    # Если переменная задана как File — это путь к файлу; если как многострочный текст — записываем в файл
+    - |
+      if [ -f "$DEPLOY_SSH_KEY" ]; then
+        cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
+      else
+        printf "%s\n" "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
+      fi
+    - chmod 600 ~/.ssh/id_ed25519
+    - eval "$(ssh-agent -s)"
+    - ssh-add ~/.ssh/id_ed25519
+    # known_hosts: берём отпечаток gitlab.com
+    - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.com >> ~/.ssh/known_hosts
+    # Переключаем remote на SSH
+    - git remote set-url origin "git@gitlab.com:goit-neo/mlops-final-project.git"
     - git fetch --all --tags
-    # переключаем origin на HTTPS с Deploy Token
-    # добавь переменные в Settings → CI/CD → Variables:
-    #   DEPLOY_USER = gitlab+deploy-token-XXXX   (Masked/Protected)
-    #   DEPLOY_TOKEN = <deploy token>            (Masked/Protected)
-    - >
-      git remote set-url origin
-      "https://${DEPLOY_USER}:${DEPLOY_TOKEN}@gitlab.com/goit-neo/mlops-final-project.git"
     - git checkout -B "${CI_COMMIT_REF_NAME}"
     - git pull --ff-only origin "${CI_COMMIT_REF_NAME}" || true
   script: |
     set -e
     VERSION="$(cat VERSION)"
 
-    # обновляем версии в Helm
+    # Обновляем версии в Helm
     sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
     sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
 
     git add helm/values.yaml helm/Chart.yaml
     git commit -m "chore: bump helm to ${VERSION}" || echo "nothing to commit"
 
-    # обновляем/создаём тег
+    # Обновляем/создаём тег
     git tag -f "v${VERSION}" || true
 
-    # пушим в текущую ветку и теги
-    git push origin "HEAD:${CI_COMMIT_REF_NAME}"
-    git push origin --tags
+    # Пушим коммит и теги через SSH deploy key
+    GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin "HEAD:${CI_COMMIT_REF_NAME}"
+    GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin --tags
   only:
     - main
