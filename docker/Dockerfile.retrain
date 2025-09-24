@@ -1,0 +1,9 @@
+FROM python:3.11-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY app/requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app /app/app
+COPY model/train.py /app/model/train.py
+VOLUME ["/model"]
+CMD ["python", "model/train.py"]

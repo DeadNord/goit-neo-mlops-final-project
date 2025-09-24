@@ -6,15 +6,15 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://gitlab.com/goit-neo/mlops-final-project.git
-    targetRevision: main
+    repoURL: https://gitlab.com/goit-neo/mlops-final-project
+    targetRevision: final-project
     path: helm
+    helm:
+      valueFiles: ["values.yaml"]
   destination:
     server: https://kubernetes.default.svc
-    namespace: aiops-quality
+    namespace: aiops
   syncPolicy:
-    automated:
-      prune: true
-      selfHeal: true
+    automated: { prune: true, selfHeal: true }
     syncOptions:
       - CreateNamespace=true

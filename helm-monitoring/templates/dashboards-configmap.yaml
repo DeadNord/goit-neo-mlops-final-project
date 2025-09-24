@@ -1,9 +1,0 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: aiops-quality-monitoring-dashboards
-  labels:
-    grafana_dashboard: "1"
-data:
-  aiops-quality.json: |
-{{ .Files.Get "files/dashboards.json" | indent 4 }}

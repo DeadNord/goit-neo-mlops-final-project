@@ -1,0 +1,14 @@
+grafana:
+  enabled: true
+  defaultDashboardsEnabled: false
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      folder: /var/lib/grafana/dashboards
+    datasources:
+      enabled: true
+
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s

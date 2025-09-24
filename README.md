@@ -1,196 +1,151 @@
-# AIOps Quality Project
+# AIOps Quality Project — App-of-Apps (Argo CD)
 
-Комплексний приклад ML Ops‑платформи: FastAPI inference сервіс із дрейф‑детекцією, GitOps‑деплоєм через ArgoCD, моніторингом у Prometheus/Grafana, логуванням у Loki та пайплайном GitLab CI для перевидання моделі.
+FastAPI-инференс + метрики Prometheus + логи Loki/Promtail + дрейф-детектор.
+Деплой и платформа (Prometheus/Grafana/Loki) — через Argo CD App-of-Apps.
+CI GitLab: retrain → build → bump Helm → ArgoCD авто-redeploy.
 
-## Архітектура та структура репозиторію
+## Архитектура
 
-```
-app/
-│   └── main.py        # FastAPI inference + Prometheus метрики + дрейф‑детектор
-model/
-│   ├── artifacts/     # Збережена модель, референсні дані та метрики тренування
-│   └── train.py       # Скрипт повторного тренування
-helm/
-│   ├── Chart.yaml
-│   ├── values.yaml
-│   └── templates/     # Deployment, Service, ServiceAccount, анотації Prometheus/Loki
-helm-monitoring/
-│   ├── Chart.yaml     # Umbrella-чарт для Loki, Promtail та Grafana
-│   ├── values.yaml
-│   ├── files/
-│   │   └── dashboards.json
-│   └── templates/
-│       └── dashboards-configmap.yaml
-argocd/
-│   ├── application.yaml        # ArgoCD Application сервісу з auto-sync та self-heal
-│   └── monitoring.yaml         # ArgoCD Application моніторингового стеку
-prometheus/
-│   └── additionalScrapeConfigs.yaml  # Secret із додатковим scrape-конфігом для Prometheus
-Dockerfile                       # Контейнер для inference сервісу
-requirements.txt                 # Python залежності
-.gitlab-ci.yml                   # GitLab CI/CD пайплайн retrain-model
-```
+Argo CD App-of-Apps: `argocd/root-application.yaml` указывает на `argocd/apps/*`:
 
-**Ключові компоненти платформи**
+- kube-prometheus-stack (Prometheus + Grafana, sidecar для dashboards/datasources)
+- loki-stack (Loki + Promtail)
+- aiops-quality-service (Helm-чарт FastAPI сервиса)
+- grafana-dashboards (ConfigMap с дашбордом и датасорсом)
 
-| Компонент         | Опис                                                                                                                            |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| FastAPI сервіс    | `app/main.py` завантажує модель, експонує `/predict`, `/healthz`, `/metrics`, логування у stdout                                |
-| Дрейф‑детектор    | `alibi_detect.cd.MMDDrift` із `model/artifacts/reference.npy`; збільшує Prometheus-лічильник та логує подію                     |
-| GitLab CI retrain | Job `retrain-model` у `.gitlab-ci.yml` тренує модель, оновлює Docker-образ і Helm-чарт                                          |
-| Helm + ArgoCD     | `helm/` описує сервіс; `argocd/` містить Application манифести з auto-sync/self-heal                                            |
-| Моніторинг        | `helm-monitoring/` деплоїть Loki, Promtail, Grafana та підкладає дешборд; Prometheus отримує `/metrics` через додатковий scrape |
-| Логування         | Promtail збирає stdout подів, Loki надає інтерфейс для запитів                                                                  |
+Приложение (`/app`):
 
-## Підготовка облікових даних
+- `POST /predict` — предсказание, лог входных/выходных
+- `/metrics` — Prometheus метрики (RPS, latency, drift)
+- простой drift-детектор (порог по среднему)
 
-1. **GitLab Container Registry** — Settings ➝ Repository ➝ Container Registry. Створіть (або використайте) Deploy Token/Personal Access Token з правами `read_registry`/`write_registry`.
-2. **GitLab Project ID** — Settings ➝ General ➝ General ➝ Project ID.
-3. **Pipeline Trigger Token** — Settings ➝ CI/CD ➝ Pipeline Triggers (створіть `retrain-model`).
-4. **GitLab Personal Access Token** для ArgoCD — Profile ➝ Access Tokens (`read_repository`).
-5. **ArgoCD доступ** — URL контролера та креденшли (admin/password або SSO).
+GitOps: Argo CD auto-sync + self-heal
 
-Заповніть файл `.env` та експортуйте його в середовище:
+CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
+
+## Требования
+
+- Kubernetes кластер (kind/k3d/minikube/managed)
+- `kubectl`, `helm` установлены
+- Установлен Argo CD в кластере (namespace: argocd)
+- Доступ к Git-репозиторию этой ветки: `final-project`
+- Образы публикуются в ваш контейнерный реестр (обновите `helm/values.yaml.image.repository`)
+
+## Быстрый запуск (одной командой)
+
+Отредактируйте ссылки на репозиторий/реестр:
+
+- `helm/values.yaml`: `image.repository: REGISTRY/aiops-quality-service`
+- `argocd/apps/*.yaml`: `repoURL: https://GIT/YOUR/aiops-quality-project.git`
+
+Закоммитьте в ветку `final-project`.
+
+Примените корневое приложение Argo CD:
 
 ```bash
-cp .env.example .env
-set -a
-source .env
-set +a
+kubectl apply -n argocd -f argocd/root-application.yaml
 ```
 
-## Покроковий кластерний runbook
+Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение и дашборды.  
+Дождитесь, пока все приложения будут в `Synced/Healthy` (UI ArgoCD или `kubectl get apps -n argocd`).
 
-1. **Зберіть та запуште Docker-образ inference сервісу.**
+## Проверки
+
+**API доступен (port-forward):**
 
 ```bash
-docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "$CI_REGISTRY"
-docker build -t "$IMAGE_REPOSITORY:$IMAGE_TAG" .
-docker push "$IMAGE_REPOSITORY:$IMAGE_TAG"
+kubectl -n aiops port-forward svc/aiops-quality-service 8000:8000
+curl http://localhost:8000/health
 ```
 
-2. **Оновіть Helm-чарт сервісу GitOps-способом та запуште зміни.**
+**Логи пода:**
 
 ```bash
-yq -i '.image.repository = strenv(IMAGE_REPOSITORY)' helm/values.yaml
-yq -i '.image.tag = strenv(IMAGE_TAG)' helm/values.yaml
-git add helm/values.yaml
-git commit -m "chore: set image $IMAGE_TAG" && git push || echo "Helm values вже містять поточний тег"
+kubectl -n aiops logs -l app=aiops-quality-service -f
 ```
 
-3. **Підготуйте namespace та secret для pull з registry.**
+**Метрики сервисa:**
 
 ```bash
-kubectl create namespace aiops-quality --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n aiops-quality create secret docker-registry registry-cred \
-   --docker-server="$REGISTRY" \
-   --docker-username="$CI_REGISTRY_USER" \
-   --docker-password="$CI_REGISTRY_PASSWORD" \
-   --dry-run=client -o yaml | kubectl apply -f -
+curl http://localhost:8000/metrics
 ```
 
-4. **Увімкніть scrape конфіг у Prometheus Operator.**
+**Grafana:**
+
+Найдите сервис Grafana в ns `monitoring`:
 
 ```bash
-kubectl apply -f prometheus/additionalScrapeConfigs.yaml
-export PROMETHEUS_NAME=$(kubectl -n monitoring get prometheus -o jsonpath='{.items[0].metadata.name}')
-kubectl -n monitoring patch prometheus "$PROMETHEUS_NAME" --type merge \
-   -p '{"spec":{"additionalScrapeConfigs":{"name":"prometheus-additional-scrape-configs","key":"additional-scrape-configs.yaml"}}}'
-kubectl -n monitoring rollout status statefulset prometheus-k8s
+kubectl -n monitoring get svc | grep grafana
+kubectl -n monitoring port-forward svc/kube-prometheus-stack-grafana 3000:80
 ```
 
-5. **Підключіть ArgoCD CLI та репозиторій.**
+Откройте http://localhost:3000 → дашборд “AIOps Quality Service”.
+
+## Как протестировать запрос
 
 ```bash
-argocd login "$ARGOCD_SERVER" --username "$ARGOCD_USERNAME" --password "$ARGOCD_PASSWORD" --insecure
-argocd repo add "$GIT_REPO_URL" --username "$GIT_USERNAME" --password "$GIT_TOKEN"
+curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"   -d '{"values":[0.1, 0.2, 0.3]}'
 ```
 
-6. **Створіть ArgoCD застосунки для сервісу та моніторингу.**
+Ожидается JSON:
+
+```json
+{ "prediction": 0, "drift": false }
+```
+
+Входные/выходные данные пишутся в stdout (собирает Promtail → Loki).
+
+## Логирование
+
+- Все логи приложения идут в stdout.
+- Стек `loki-stack` собирает логи через promtail.
+- В Grafana → Explore → Loki: фильтруйте по `namespace=aiops`, `label app=aiops-quality-service`.
+
+Для теста дрейфа (увидеть "Drift detected" в логах) отправьте значения со средним, отличающимся от 0.0:
 
 ```bash
-kubectl apply -f argocd/monitoring.yaml
-kubectl apply -f argocd/application.yaml
-argocd app sync aiops-quality-monitoring
-argocd app wait aiops-quality-monitoring --sync --health
-argocd app sync aiops-quality-service
-argocd app wait aiops-quality-service --sync --health
+curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"   -d '{"values":[2.0, 3.0, 4.0]}'
 ```
 
-7. **Налаштуйте порт-форварди для API, Grafana та Loki.**
+## Метрики и Grafana
 
-```bash
-kubectl -n aiops-quality port-forward svc/aiops-quality-service 8000:8000 >/tmp/api-port-forward.log 2>&1 &
-export API_PORT_FORWARD_PID=$!
-kubectl -n monitoring port-forward svc/grafana 3000:80 >/tmp/grafana-port-forward.log 2>&1 &
-export GRAFANA_PORT_FORWARD_PID=$!
-kubectl -n monitoring port-forward svc/loki 3100:3100 >/tmp/loki-port-forward.log 2>&1 &
-export LOKI_PORT_FORWARD_PID=$!
-sleep 5
-```
+Метрики на `/metrics` публикуются библиотекой `prometheus-fastapi-instrumentator` + кастомные:
 
-8. **Перевірте здоров'я сервісу та Prometheus-метрики.**
+- `inference_requests_total`
+- `inference_latency_seconds_bucket`
+- `drift_events_total`
 
-```bash
-curl -s http://127.0.0.1:8000/healthz
-curl -s http://127.0.0.1:8000/metrics | grep model_predictions_total
-curl -s -X POST "http://127.0.0.1:8000/predict" \
-   -H "Content-Type: application/json" \
-   -d '{"features": [13.54, 14.36, 87.46, 566.3, 0.09779, 0.08129, 0.06664, 0.04781, 0.1885, 0.05766, 0.2699, 0.7886, 2.058, 23.56, 0.008462, 0.0146, 0.02387, 0.01486, 0.01405, 0.002377, 15.11, 19.26, 99.7, 711.2, 0.144, 0.1773, 0.239, 0.1288, 0.2977, 0.07259]}' | jq '.'
-```
+`kube-prometheus-stack` подхватывает `ServiceMonitor` из чарта приложения.
 
-9. **Звірте логування через Kubernetes та Loki.**
+Дашборд `grafana/dashboards/aiops-dashboard.json` автоматически провиженится через sidecar.
 
-```bash
-kubectl -n aiops-quality logs deployment/aiops-quality-service | tail -n 20
-curl -s "http://127.0.0.1:3100/loki/api/v1/query?query={app%3D%22aiops-quality-service%22}&limit=5" | jq '.data.result[]?.stream'
-```
+## Детектор дрейфа
 
-10. **Спровокуйте дрейф-детектор та перевірте метрики/логи.**
+Реализован простой пороговый детектор по среднему (см. `app/drift.py`).
 
-```bash
-kubectl -n aiops-quality set env deployment/aiops-quality-service DRIFT_P_THRESHOLD=0.5 --overwrite
-kubectl -n aiops-quality rollout status deployment/aiops-quality-service
-curl -s -X POST "http://127.0.0.1:8000/predict" \
--H "Content-Type: application/json" \
--d '{"features": [100, 150, 200, 300, 0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 1, 1, 1, 1, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 100, 120, 140, 160, 0.9, 0.9, 0.9, 0.9, 0.9, 0.9]}' | jq '.'
-kubectl -n aiops-quality logs deployment/aiops-quality-service | grep "Drift detection result" | tail -n 5
-curl -s http://127.0.0.1:8000/metrics | grep model_drift_events_total
-```
+При дрейфе:
 
-11. **Запустіть GitLab CI пайплайн retrain та дочекайтеся GitOps оновлення.**
+- метрика `drift_events_total` инкрементируется,
+- в stdout пишется `Drift detected` (видно в Loki).
 
-```bash
-curl -s -X POST "https://gitlab.com/api/v4/projects/$GITLAB_PROJECT_ID/trigger/pipeline" \
---form token="$GITLAB_TRIGGER_TOKEN" \
---form ref=main
-argocd app wait aiops-quality-service --operation
-argocd app get aiops-quality-service | grep -E "Health|Sync Status"
-kubectl -n aiops-quality rollout status deployment/aiops-quality-service
-```
+## Retrain пайплайн (GitLab CI)
 
-12. **Перевірте Grafana дешборд та джерела даних.**
+Пайплайн (`.gitlab-ci.yml`) содержит:
 
-```bash
-curl -s -u admin:admin "http://127.0.0.1:3000/api/datasources" | jq '.[].name'
-curl -s -u admin:admin "http://127.0.0.1:3000/api/dashboards/uid/aiops-quality" | jq '.dashboard.panels[].title'
-```
+- `retrain-model` (manual) — обучает модель и публикует артефакт
+- `build-image` — собирает Docker-образ приложения с текущей моделью
+- `bump-helm-and-tag` — обновляет `helm/values.yaml` и `Chart.yaml`, ставит git-tag, пушит в `final-project`
 
-13. **Завершіть порт-форварди після тестів.**
+**Ручной запуск retrain:**
 
-```bash
-kill "$API_PORT_FORWARD_PID"
-kill "$GRAFANA_PORT_FORWARD_PID"
-kill "$LOKI_PORT_FORWARD_PID"
-rm -f /tmp/api-port-forward.log /tmp/grafana-port-forward.log /tmp/loki-port-forward.log
-```
+1. В GitLab → Pipelines → запустить `retrain-model` (Manual).
+2. Дождаться `build-image` и `bump-helm-and-tag`.
+3. Argo CD возьмёт новый тег образа и раскатит его автоматически.
 
-14. **Повністю вимкніть створену інфраструктуру.**
+---
 
-```bash
-argocd app delete aiops-quality-service --yes
-argocd app delete aiops-quality-monitoring --yes
-kubectl delete namespace aiops-quality --ignore-not-found
-kubectl delete namespace monitoring --ignore-not-found
-kubectl delete secret -n monitoring prometheus-additional-scrape-configs --ignore-not-found
-```
+## Обновление модели
+
+1. Локально: `python model/train.py` (создаст/обновит `/model/model.pkl`) — или запустить CI job.
+2. Увеличьте версию в `VERSION` (например, `0.1.1`).
+3. Пуш в ветку `final-project` — CI соберёт образ и обновит Helm; Argo CD синхронизирует.

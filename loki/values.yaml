@@ -1,0 +1,6 @@
+grafana:
+  enabled: false # Grafana уже из kube-prometheus-stack
+loki:
+  isDefault: true
+promtail:
+  enabled: true

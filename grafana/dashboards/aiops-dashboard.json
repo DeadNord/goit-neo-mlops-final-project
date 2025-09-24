@@ -1,0 +1,35 @@
+{
+    "uid": "aiops-main",
+    "title": "AIOps Quality Service",
+    "schemaVersion": 39,
+    "version": 1,
+    "panels": [
+        {
+            "type": "stat",
+            "title": "Requests/min",
+            "targets": [
+                {
+                    "expr": "sum(rate(inference_requests_total[5m]))"
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "title": "Drift events (1h)",
+            "targets": [
+                {
+                    "expr": "increase(drift_events_total[1h])"
+                }
+            ]
+        },
+        {
+            "type": "stat",
+            "title": "Latency p90",
+            "targets": [
+                {
+                    "expr": "histogram_quantile(0.90, sum(rate(inference_latency_seconds_bucket[5m])) by (le))"
+                }
+            ]
+        }
+    ]
+}

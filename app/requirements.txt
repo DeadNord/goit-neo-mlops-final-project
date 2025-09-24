@@ -1,0 +1,9 @@
+fastapi
+uvicorn[standard]
+pydantic
+joblib
+numpy
+scikit-learn
+prometheus-client
+prometheus-fastapi-instrumentator
+alibi-detect==0.11.4
