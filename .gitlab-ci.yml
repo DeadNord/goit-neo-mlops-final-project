@@ -2,10 +2,13 @@ stages: [retrain, build, deploy]
 
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
+  DOCKER_TLS_CERTDIR: "" # для docker:dind
 
 .reuse-docker: &reuse-docker
   image: docker:24
-  services: [docker:24-dind]
+  services:
+    - name: docker:24-dind
+      command: ["--tls=false", "--mtu=1460"]
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
 
@@ -17,29 +20,44 @@ retrain-model:
     - python model/train.py
     - mkdir -p artifacts && cp /model/model.pkl artifacts/ || true
   artifacts:
-    paths: [artifacts/model.pkl]
+    paths:
+      - artifacts/model.pkl
   when: manual
-  only: [main]
+  only:
+    - main
 
 build-image:
   stage: build
   <<: *reuse-docker
-  dependencies: [retrain-model]
+  needs: ["retrain-model"] # быстрее, чем dependencies
   script:
-    - VERSION=$(cat VERSION)
+    - VERSION="$(cat VERSION)"
     - docker build -f docker/Dockerfile.app -t "$IMAGE:$VERSION" .
     - docker push "$IMAGE:$VERSION"
+  only:
+    - main
 
 bump-helm-and-tag:
   stage: deploy
-  image: alpine/git
+  image: alpine:3.19
+  before_script:
+    - apk add --no-cache git sed
+    - git config user.name "ci-bot"
+    - git config user.email "ci@example.com"
   script:
-    - VERSION=$(cat VERSION)
-    - sed -i "s/tag:.*/tag: \"${VERSION}\"/g" helm/values.yaml
-    - sed -i "s/appVersion:.*/appVersion: \"${VERSION}\"/g" helm/Chart.yaml
-    - git config user.name "ci-bot" && git config user.email "ci@example.com"
-    - git add helm/values.yaml helm/Chart.yaml
-    - git commit -m "chore: bump helm to ${VERSION}" || true
-    - git tag "v${VERSION}" || true
-    - git push origin HEAD:main --tags
-  only: [main]
+    - |
+      set -e
+      VERSION="$(cat VERSION)"
+
+      # обновляем версии в Helm
+      sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
+      sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
+
+      git add helm/values.yaml helm/Chart.yaml
+      git commit -m "chore: bump helm to ${VERSION}" || true
+      git tag -f "v${VERSION}" || true
+
+      # пуш в ту же ветку, откуда запущен пайплайн
+      git push origin "HEAD:${CI_COMMIT_REF_NAME}" --tags
+  only:
+    - main
