@@ -52,6 +52,7 @@ kubectl apply -n argocd -f argocd/root-application.yaml
 kubectl -n argocd get pods
 
 kubectl -n argocd port-forward svc/argocd-server 8080:80
+http://localhost:8080/
 ```
 
 Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение и дашборды.  
@@ -63,7 +64,6 @@ Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение
 
 ```bash
 kubectl -n aiops port-forward svc/aiops-quality-service 8000:8000
-curl http://localhost:8000/
 kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 
 curl http://localhost:8000/health
