@@ -4,8 +4,16 @@ Retrain:
 - обучает модель,
 - сохраняет в /model/model.pkl
 """
+from pathlib import Path
+import sys
+
 import numpy as np
 from sklearn.linear_model import LogisticRegression
+
+ROOT_DIR = Path(__file__).resolve().parents[1]
+if str(ROOT_DIR) not in sys.path:
+    sys.path.insert(0, str(ROOT_DIR))
+
 from app.model_io import save_model
 
 def load_new_data():
