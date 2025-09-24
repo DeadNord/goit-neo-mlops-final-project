@@ -45,7 +45,7 @@ CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
 ```bash
 kind create cluster --name aiops
 
-kubectl create namespace argocd 2>/dev/null || true
+# kubectl create namespace argocd 2>/dev/null || true
 kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
 kubectl apply -n argocd -f argocd/root-application.yaml
