@@ -19,7 +19,7 @@ retrain-model:
   artifacts:
     paths: [artifacts/model.pkl]
   when: manual
-  only: [final-project]
+  only: [main]
 
 build-image:
   stage: build
@@ -41,5 +41,5 @@ bump-helm-and-tag:
     - git add helm/values.yaml helm/Chart.yaml
     - git commit -m "chore: bump helm to ${VERSION}" || true
     - git tag "v${VERSION}" || true
-    - git push origin HEAD:final-project --tags
-  only: [final-project]
+    - git push origin HEAD:main --tags
+  only: [main]

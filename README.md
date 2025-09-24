@@ -28,7 +28,7 @@ CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
 - Kubernetes кластер (kind/k3d/minikube/managed)
 - `kubectl`, `helm` установлены
 - Установлен Argo CD в кластере (namespace: argocd)
-- Доступ к Git-репозиторию этой ветки: `final-project`
+- Доступ к Git-репозиторию этой ветки: `main`
 - Образы публикуются в ваш контейнерный реестр (обновите `helm/values.yaml.image.repository`)
 
 ## Быстрый запуск (одной командой)
@@ -38,7 +38,7 @@ CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
 - `helm/values.yaml`: `image.repository: REGISTRY/aiops-quality-service`
 - `argocd/apps/*.yaml`: `repoURL: https://GIT/YOUR/aiops-quality-project.git`
 
-Закоммитьте в ветку `final-project`.
+Закоммитьте в ветку `main`.
 
 Примените корневое приложение Argo CD:
 
@@ -141,7 +141,7 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 
 - `retrain-model` (manual) — обучает модель и публикует артефакт
 - `build-image` — собирает Docker-образ приложения с текущей моделью
-- `bump-helm-and-tag` — обновляет `helm/values.yaml` и `Chart.yaml`, ставит git-tag, пушит в `final-project`
+- `bump-helm-and-tag` — обновляет `helm/values.yaml` и `Chart.yaml`, ставит git-tag, пушит в `main`
 
 **Ручной запуск retrain:**
 
@@ -155,4 +155,4 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 
 1. Локально: `python model/train.py` (создаст/обновит `/model/model.pkl`) — или запустить CI job.
 2. Увеличьте версию в `VERSION` (например, `0.1.1`).
-3. Пуш в ветку `final-project` — CI соберёт образ и обновит Helm; Argo CD синхронизирует.
+3. Пуш в ветку `main` — CI соберёт образ и обновит Helm; Argo CD синхронизирует.

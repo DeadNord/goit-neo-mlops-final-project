@@ -7,7 +7,7 @@ spec:
   project: default
   source:
     repoURL: https://gitlab.com/goit-neo/mlops-final-project.git
-    targetRevision: final-project
+    targetRevision: main
     path: helm
     helm:
       valueFiles: ["values.yaml"]
