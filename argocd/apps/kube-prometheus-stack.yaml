@@ -11,9 +11,24 @@ spec:
     targetRevision: 61.7.0
     helm:
       values: |
-        {{- toYaml (.Files.Get "prometheus/values.yaml" | fromYaml) | nindent 8 }}
+        grafana:
+          enabled: true
+          defaultDashboardsEnabled: false
+          sidecar:
+            dashboards:
+              enabled: true
+              label: grafana_dashboard
+              folder: /var/lib/grafana/dashboards
+            datasources:
+              enabled: true
+
+        prometheus:
+          prometheusSpec:
+            scrapeInterval: 15s
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
   syncPolicy:
-    automated: { prune: true, selfHeal: true }
+    automated:
+      prune: true
+      selfHeal: true
