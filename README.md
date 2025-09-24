@@ -43,7 +43,13 @@ CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
 Примените корневое приложение Argo CD:
 
 ```bash
+kind create cluster --name aiops
+
+kubectl create namespace argocd 2>/dev/null || true
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
 kubectl apply -n argocd -f argocd/root-application.yaml
+kubectl -n argocd get pods
 ```
 
 Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение и дашборды.  
@@ -55,7 +61,8 @@ Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение
 
 ```bash
 kubectl -n aiops port-forward svc/aiops-quality-service 8000:8000
-curl http://localhost:8000/health
+curl http://localhost:8000/
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d; echo
 ```
 
 **Логи пода:**

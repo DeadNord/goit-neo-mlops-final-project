@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://gitlab.com/goit-neo/mlops-final-project
+    repoURL: https://gitlab.com/goit-neo/mlops-final-project.git
     targetRevision: final-project
     path: grafana
     kustomize: {}
