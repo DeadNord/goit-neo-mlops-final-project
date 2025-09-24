@@ -1,8 +1,12 @@
+# yaml-language-server: $schema=https://gitlab.com/gitlab-org/gitlab/-/raw/master/app/assets/javascripts/editor/schema/ci.json
+
 stages: [retrain, build, deploy]
 
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
   DOCKER_TLS_CERTDIR: "" # для docker:dind
+  GIT_STRATEGY: fetch # нужен полный git для пуша
+  GIT_DEPTH: "0"
 
 .reuse-docker: &reuse-docker
   image: docker:24
@@ -44,20 +48,33 @@ bump-helm-and-tag:
     - apk add --no-cache git sed
     - git config user.name "ci-bot"
     - git config user.email "ci@example.com"
-  script:
-    - |
-      set -e
-      VERSION="$(cat VERSION)"
+    # гарантируем полную историю и теги
+    - git fetch --all --tags
+    # переключаем origin на HTTPS с Deploy Token
+    # добавь переменные в Settings → CI/CD → Variables:
+    #   DEPLOY_USER = gitlab+deploy-token-XXXX   (Masked/Protected)
+    #   DEPLOY_TOKEN = <deploy token>            (Masked/Protected)
+    - >
+      git remote set-url origin
+      "https://${DEPLOY_USER}:${DEPLOY_TOKEN}@gitlab.com/goit-neo/mlops-final-project.git"
+    - git checkout -B "${CI_COMMIT_REF_NAME}"
+    - git pull --ff-only origin "${CI_COMMIT_REF_NAME}" || true
+  script: |
+    set -e
+    VERSION="$(cat VERSION)"
 
-      # обновляем версии в Helm
-      sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
-      sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
+    # обновляем версии в Helm
+    sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
+    sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
 
-      git add helm/values.yaml helm/Chart.yaml
-      git commit -m "chore: bump helm to ${VERSION}" || true
-      git tag -f "v${VERSION}" || true
+    git add helm/values.yaml helm/Chart.yaml
+    git commit -m "chore: bump helm to ${VERSION}" || echo "nothing to commit"
 
-      # пуш в ту же ветку, откуда запущен пайплайн
-      git push origin "HEAD:${CI_COMMIT_REF_NAME}" --tags
+    # обновляем/создаём тег
+    git tag -f "v${VERSION}" || true
+
+    # пушим в текущую ветку и теги
+    git push origin "HEAD:${CI_COMMIT_REF_NAME}"
+    git push origin --tags
   only:
     - main

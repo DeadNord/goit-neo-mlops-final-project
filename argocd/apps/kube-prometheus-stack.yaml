@@ -4,7 +4,7 @@ metadata:
   name: kube-prometheus-stack
   namespace: argocd
   annotations:
-  argocd.argoproj.io/sync-options: CreateNamespace=true,ServerSideApply=true
+    argocd.argoproj.io/sync-options: CreateNamespace=true,PruneLastAppliedConfiguration=true,ServerSideApply=true
 spec:
   project: default
   source:
@@ -36,4 +36,5 @@ spec:
       selfHeal: true
   syncOptions:
     - CreateNamespace=true
-    - ServerSideApply=tru
+    - PruneLastAppliedConfiguration=true
+    - ServerSideApply=true
