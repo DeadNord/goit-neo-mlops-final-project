@@ -36,7 +36,13 @@ build-image:
   needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
-    - docker build -f docker/Dockerfile.app -t "$IMAGE:$VERSION" .
+    - |
+      if [ -n "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX" ]; then
+        PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
+      else
+        PYTHON_IMAGE="python:3.11-slim"
+      fi
+      docker build -f docker/Dockerfile.app --build-arg PYTHON_IMAGE="$PYTHON_IMAGE" -t "$IMAGE:$VERSION" .
     - docker push "$IMAGE:$VERSION"
   only:
     - main
