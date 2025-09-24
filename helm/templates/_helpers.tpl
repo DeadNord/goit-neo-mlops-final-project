@@ -1,11 +1,8 @@
-+17
--0
-
-{{- define "aiops.name" -}}
+{{- define "aiops-quality-service.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "aiops.fullname" -}}
+{{- define "aiops-quality-service.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -18,19 +15,6 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "aiops.chart" -}}
+{{- define "aiops-quality-service.chart" -}}
 {{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" -}}
-{{- end -}}
-
-{{-/*
-Provide compatibility aliases that follow the Helm chart's full name so the
-templates can reference {{ include "aiops-quality-service.*" }} without
-duplicating logic.
-*/ -}}
-{{- define "aiops-quality-service.name" -}}
-{{- include "aiops.name" . -}}
-{{- end -}}
-
-{{- define "aiops-quality-service.fullname" -}}
-{{- include "aiops.fullname" . -}}
 {{- end -}}
