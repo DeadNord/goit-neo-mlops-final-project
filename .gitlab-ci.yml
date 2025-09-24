@@ -2,68 +2,56 @@
 
 stages: [retrain, build, deploy]
 
-workflow:
-  rules:
-    - if: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX"
-      variables:
-        DOCKER_IMAGE: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24"
-        DOCKER_DIND_IMAGE: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24-dind"
-    - when: always
+# Всегда используем Dependency Proxy для образов раннера и dind
+# (не через переменные-посредники, а напрямую)
+.default-docker: &default-docker
+  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24"
+  services:
+    - name: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24-dind"
+      command: ["--tls=false", "--mtu=1460"]
+  before_script:
+    # Логин в GitLab Container Registry для пуша итогового образа
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+    # Логин в Dependency Proxy (чтобы тянуть docker:24*, python:3.11-slim и т.д.)
+    - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "$CI_DEPENDENCY_PROXY_SERVER"
 
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
   DOCKER_TLS_CERTDIR: "" # для docker:dind
-  GIT_STRATEGY: fetch # нужен полный git для пуша
+  GIT_STRATEGY: fetch
   GIT_DEPTH: "0"
-  DOCKER_IMAGE: "docker:24"
-  DOCKER_DIND_IMAGE: "docker:24-dind"
-
-.reuse-docker: &reuse-docker
-  image: "$DOCKER_IMAGE"
-  services:
-    - name: "$DOCKER_DIND_IMAGE"
-      command: ["--tls=false", "--mtu=1460"]
-  before_script:
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
 
 retrain-model:
   stage: retrain
-  image: python:3.11-slim
+  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
   script:
     - pip install -r app/requirements.txt
     - python model/train.py
     - mkdir -p artifacts && cp /model/model.pkl artifacts/ || true
   artifacts:
-    paths:
-      - artifacts/model.pkl
+    paths: [artifacts/model.pkl]
   when: manual
-  only:
-    - main
+  only: [main]
 
 build-image:
   stage: build
-  <<: *reuse-docker
+  <<: *default-docker
   needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
-    - |
-      if [ -n "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX" ]; then
-        PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
-      else
-        PYTHON_IMAGE="python:3.11-slim"
-      fi
-      docker build -f docker/Dockerfile.app --build-arg PYTHON_IMAGE="$PYTHON_IMAGE" -t "$IMAGE:$VERSION" .
-  only:
-    - main
+    - docker build --pull \
+      -f docker/Dockerfile.app \
+      --build-arg PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim" \
+      -t "$IMAGE:$VERSION" .
+    - docker push "$IMAGE:$VERSION"
+  only: [main]
 
 bump-helm-and-tag:
   stage: deploy
-  image: alpine:3.19
+  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:3.19"
   before_script:
     - apk add --no-cache git openssh-client sed
-    # ----- SSH setup -----
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    # Если переменная задана как File — это путь к файлу; если как многострочный текст — записываем в файл
     - |
       if [ -f "$DEPLOY_SSH_KEY" ]; then
         cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
@@ -73,9 +61,7 @@ bump-helm-and-tag:
     - chmod 600 ~/.ssh/id_ed25519
     - eval "$(ssh-agent -s)"
     - ssh-add ~/.ssh/id_ed25519
-    # known_hosts: берём отпечаток gitlab.com
     - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.com >> ~/.ssh/known_hosts
-    # Переключаем remote на SSH
     - git remote set-url origin "git@gitlab.com:goit-neo/mlops-final-project.git"
     - git fetch --all --tags
     - git checkout -B "${CI_COMMIT_REF_NAME}"
@@ -86,18 +72,13 @@ bump-helm-and-tag:
     set -e
     VERSION="$(cat VERSION)"
 
-    # Обновляем версии в Helm
     sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
     sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
 
     git add helm/values.yaml helm/Chart.yaml
     git commit -m "chore: bump helm to ${VERSION}" || echo "nothing to commit"
-
-    # Обновляем/создаём тег
     git tag -f "v${VERSION}" || true
 
-    # Пушим коммит и теги через SSH deploy key
     GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin "HEAD:${CI_COMMIT_REF_NAME}"
     GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin --force "refs/tags/v${VERSION}"
-  only:
-    - main
+  only: [main]
