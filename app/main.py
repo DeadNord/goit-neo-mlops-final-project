@@ -19,6 +19,8 @@ DRIFT_COUNTER = Counter("drift_events_total", "Total drift events", ["app"])
 LATENCY_HIST = Histogram("inference_latency_seconds", "Inference latency", ["app"])
 
 app = FastAPI(title=APP_NAME)
+Instrumentator().instrument(app).expose(app)  # /metrics
+
 model = load_model()
 detector = get_drift_detector() if ENABLE_DRIFT else None
 
@@ -31,7 +33,6 @@ class PredictResponse(BaseModel):
 
 @app.on_event("startup")
 async def _startup():
-    Instrumentator().instrument(app).expose(app)  # /metrics
     logger.info("Model loaded. Drift detector: %s", "on" if detector else "off")
 
 @app.get("/health")
