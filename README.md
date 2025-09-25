@@ -55,7 +55,7 @@ kubectl -n argocd port-forward svc/argocd-server 8080:80
 http://localhost:8080/
 ```
 
-Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение и дашборды.  
+Argo CD подтянет Prometheus+Grafana, Loki+Promtail, приложение и дашборды.
 Дождитесь, пока все приложения будут в `Synced/Healthy` (UI ArgoCD или `kubectl get apps -n argocd`).
 
 ## Проверки
