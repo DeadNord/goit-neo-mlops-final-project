@@ -17,7 +17,7 @@ Argo CD App-of-Apps: `argocd/root-application.yaml` указывает на `arg
 
 - `POST /predict` — предсказание, лог входных/выходных
 - `/metrics` — Prometheus метрики (RPS, latency, drift)
-- простой drift-детектор (порог по среднему)
+- дрейф-детектор на базе Alibi Detect (KSDrift) + автотреггер retrain в GitLab
 
 GitOps: Argo CD auto-sync + self-heal
 
@@ -116,7 +116,7 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 - Стек `loki-stack` собирает логи через promtail.
 - В Grafana → Explore → Loki: фильтруйте по `namespace=aiops`, `label app=aiops-quality-service`.
 
-Для теста дрейфа (увидеть "Drift detected" в логах) отправьте значения со средним, отличающимся от 0.0:
+Для теста дрейфа (увидеть "Drift detected" в логах и срабатывание retrain-триггера) отправьте значения, отличающиеся от обучающих данных:
 
 ```bash
 curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"   -d '{"values":[2.0, 3.0, 4.0]}'
@@ -134,14 +134,81 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 
 Дашборд `grafana/dashboards/aiops-dashboard.json` автоматически провиженится через sidecar.
 
+На дашборде Grafana доступны панели:
+
+- **Inference Requests / Drift** — графики `inference_requests_total` и `drift_events_total`, можно увидеть рост счётчиков во времени;
+- **Latency (P50/P90/P99)** — гистограммы `inference_latency_seconds_bucket`;
+- **Pod Health** — статус подов сервиса (через kube-state-metrics);
+- **Log samples** — встроенный explore-сегмент (Loki) для быстрых переходов к логам.
+
 ## Детектор дрейфа
 
-Реализован простой пороговый детектор по среднему (см. `app/drift.py`).
+Используется `alibi-detect` (алгоритм `KSDrift`). Референсные данные считываются из `/model/reference_data.npy`.
+Если файл не найден, сервис генерирует синтетический baseline и пишет предупреждение в логах.
 
 При дрейфе:
 
 - метрика `drift_events_total` инкрементируется,
-- в stdout пишется `Drift detected` (видно в Loki).
+- в stdout пишется `Drift detected` (видно в Loki),
+- опционально триггерится GitLab CI пайплайн `retrain-model` (см. ниже).
+
+Обновление эталонных данных происходит вместе с retrain (`model/train.py` сохраняет `/model/reference_data.npy`).
+
+### Настройка автотреггера retrain
+
+Сервис умеет дергать GitLab trigger API при обнаружении дрейфа. Конфигурация задаётся переменными окружения (см. `helm/values.yaml`):
+
+| Переменная | Назначение |
+| --- | --- |
+| `GITLAB_TRIGGER_ENABLED` | `true` — включить вызов API |
+| `GITLAB_BASE_URL` | URL GitLab (по умолчанию `https://gitlab.com`) |
+| `GITLAB_PROJECT_ID` | ID проекта или `group/project` |
+| `GITLAB_TRIGGER_TOKEN` | Trigger Token из настроек CI/CD |
+| `GITLAB_TRIGGER_REF` | Ветка для пайплайна (по умолчанию `main`) |
+| `GITLAB_TRIGGER_VARIABLES` | Доп. переменные CI в формате `KEY1=VAL1,KEY2=VAL2` |
+
+После включения (`GITLAB_TRIGGER_ENABLED=true` + заполненные `GITLAB_PROJECT_ID`/`GITLAB_TRIGGER_TOKEN`) сервис при дрейфе запускает фоновой запрос к GitLab. В логах появится сообщение `Drift detected → scheduled GitLab retrain pipeline trigger.`
+
+Проверка:
+
+1. Установите переменные окружения/секреты в чарте (можно через Argo CD values override).
+2. Отправьте "аномальный" запрос (см. выше).
+3. В логах сервиса (`kubectl logs`) убедитесь, что был вызов GitLab (`GitLab retrain trigger enabled...`, `scheduled GitLab retrain pipeline trigger`).
+4. В GitLab появится новый пайплайн `retrain-model` с пометкой "trigger".
+
+## Сценарий проверки дрейфа и метрик
+
+1. Пробросьте порт API (см. раздел «Проверки»).
+2. Прогрейте сервис без дрейфа (среднее входов близко к 0):
+
+```bash
+for i in $(seq 1 200); do
+  curl -s -X POST http://127.0.0.1:8000/predict \
+    -H 'Content-Type: application/json' \
+    -d '{"values":[0.1,0.2,0.3]}' >/dev/null
+  sleep 0.05
+done
+```
+
+3. Сымитируйте дрейф (среднее значительно отличается):
+
+```bash
+for i in $(seq 1 30); do
+  curl -s -X POST http://127.0.0.1:8000/predict \
+    -H 'Content-Type: application/json' \
+    -d '{"values":[2.0,3.0,4.0]}' >/dev/null
+  sleep 0.05
+done
+```
+
+4. Проверьте метрики (счётчики должны увеличиться):
+
+```bash
+curl -s http://127.0.0.1:8000/metrics | grep -E 'drift_events_total|inference_requests_total'
+```
+
+5. В Grafana на дашборде «AIOps Quality Service» увидите рост `inference_requests_total`, события `drift_events_total` и изменение latency.
+6. В Loki (Grafana → Explore) фильтруйте `app=aiops-quality-service` — появится лог `Drift detected`.
 
 ## Retrain пайплайн (GitLab CI)
 
@@ -157,7 +224,11 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 2. Дождаться `build-image` и `bump-helm-and-tag`.
 3. Argo CD возьмёт новый тег образа и раскатит его автоматически.
 
----
+**Автотриггер от дрейфа:**
+
+1. Настройте переменные окружения (см. таблицу выше).
+2. Отправьте запрос с дрейфующей выборкой.
+3. Убедитесь, что в GitLab появился пайплайн, инициированный Trigger API.
 
 ## Обновление модели
 
