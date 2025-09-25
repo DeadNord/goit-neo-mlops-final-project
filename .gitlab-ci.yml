@@ -5,7 +5,7 @@ stages: [retrain, build, deploy]
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
   DOCKER_TLS_CERTDIR: "" # для docker:dind
-  GIT_STRATEGY: fetch # нужен полный git для пуша
+  GIT_STRATEGY: fetch
   GIT_DEPTH: "0"
 
 .reuse-docker: &reuse-docker
@@ -14,7 +14,7 @@ variables:
     - name: docker:24-dind
       command: ["--tls=false", "--mtu=1460"]
   before_script:
-    - |-
+    - |
       if [ -n "$DOCKERHUB_USERNAME" ] && [ -n "$DOCKERHUB_PASSWORD" ]; then
         echo "$DOCKERHUB_PASSWORD" | docker login docker.io -u "$DOCKERHUB_USERNAME" --password-stdin
       fi
@@ -32,27 +32,31 @@ retrain-model:
       - artifacts/model.pkl
   when: manual
   only:
-    - main
+    - branches # можно запускать вручную на любой ветке
 
 build-image:
   stage: build
   <<: *reuse-docker
-  needs: ["retrain-model"]
+  # retrain — опционально: если был запущен, билд подхватит артефакты
+  needs:
+    - job: retrain-model
+      artifacts: true
+      optional: true
   script:
     - VERSION="$(cat VERSION)"
+    - if [ -f artifacts/model.pkl ]; then echo "Model artifact found"; fi
     - docker build -f docker/Dockerfile.app -t "$IMAGE:$VERSION" .
     - docker push "$IMAGE:$VERSION"
   only:
-    - main
+    - branches
 
 bump-helm-and-tag:
   stage: deploy
   image: alpine:3.19
+  needs: ["build-image"] # деплой не начнётся без успешного билда
   before_script:
     - apk add --no-cache git openssh-client sed
-    # ----- SSH setup -----
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
-    # Если переменная задана как File — это путь к файлу; если как многострочный текст — записываем в файл
     - |
       if [ -f "$DEPLOY_SSH_KEY" ]; then
         cp "$DEPLOY_SSH_KEY" ~/.ssh/id_ed25519
@@ -62,9 +66,7 @@ bump-helm-and-tag:
     - chmod 600 ~/.ssh/id_ed25519
     - eval "$(ssh-agent -s)"
     - ssh-add ~/.ssh/id_ed25519
-    # known_hosts: берём отпечаток gitlab.com
     - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.com >> ~/.ssh/known_hosts
-    # Переключаем remote на SSH
     - git remote set-url origin "git@gitlab.com:goit-neo/mlops-final-project.git"
     - git fetch --all --tags
     - git checkout -B "${CI_COMMIT_REF_NAME}"
@@ -73,17 +75,13 @@ bump-helm-and-tag:
     set -e
     VERSION="$(cat VERSION)"
 
-    # Обновляем версии в Helm
     sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
     sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
 
     git add helm/values.yaml helm/Chart.yaml
     git commit -m "chore: bump helm to ${VERSION}" || echo "nothing to commit"
 
-    # Обновляем/создаём тег
     git tag -f "v${VERSION}" || true
-
-    # Пушим коммит и теги через SSH deploy key
     GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin "HEAD:${CI_COMMIT_REF_NAME}"
     GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin --tags
   only:

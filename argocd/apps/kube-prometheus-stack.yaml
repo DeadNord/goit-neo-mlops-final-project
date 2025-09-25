@@ -24,9 +24,25 @@ spec:
             datasources:
               enabled: true
 
+        prometheusOperator:
+          admissionWebhooks:
+            enabled: false
+
         prometheus:
           prometheusSpec:
             scrapeInterval: 15s
+            serviceMonitorNamespaceSelector: {}
+            serviceMonitorSelector:
+              matchLabels:
+                release: kube-prometheus-stack
+            podMonitorNamespaceSelector: {}
+            podMonitorSelector:
+              matchLabels:
+                release: kube-prometheus-stack
+            probeNamespaceSelector: {}
+            probeSelector:
+              matchLabels:
+                release: kube-prometheus-stack
   destination:
     server: https://kubernetes.default.svc
     namespace: monitoring
