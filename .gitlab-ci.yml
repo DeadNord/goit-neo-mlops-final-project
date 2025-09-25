@@ -30,7 +30,7 @@ retrain-model:
   artifacts:
     paths:
       - artifacts/model.pkl
-  when: manual
+  # when: manual
   only:
     - branches # можно запускать вручную на любой ветке
 
