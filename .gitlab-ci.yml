@@ -2,26 +2,16 @@
 
 stages: [retrain, build, deploy]
 
-workflow:
-  rules:
-    - if: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX"
-      variables:
-        DOCKER_IMAGE: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24"
-        DOCKER_DIND_IMAGE: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24-dind"
-    - when: always
-
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
   DOCKER_TLS_CERTDIR: "" # для docker:dind
   GIT_STRATEGY: fetch # нужен полный git для пуша
   GIT_DEPTH: "0"
-  DOCKER_IMAGE: "docker:24"
-  DOCKER_DIND_IMAGE: "docker:24-dind"
 
 .reuse-docker: &reuse-docker
-  image: "$DOCKER_IMAGE"
+  image: docker:24
   services:
-    - name: "$DOCKER_DIND_IMAGE"
+    - name: docker:24-dind
       command: ["--tls=false", "--mtu=1460"]
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
@@ -46,13 +36,8 @@ build-image:
   needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
-    - |
-      if [ -n "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX" ]; then
-        PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
-      else
-        PYTHON_IMAGE="python:3.11-slim"
-      fi
-      docker build -f docker/Dockerfile.app --build-arg PYTHON_IMAGE="$PYTHON_IMAGE" -t "$IMAGE:$VERSION" .
+    - docker build -f docker/Dockerfile.app -t "$IMAGE:$VERSION" .
+    - docker push "$IMAGE:$VERSION"
   only:
     - main
 
@@ -80,8 +65,6 @@ bump-helm-and-tag:
     - git fetch --all --tags
     - git checkout -B "${CI_COMMIT_REF_NAME}"
     - git pull --ff-only origin "${CI_COMMIT_REF_NAME}" || true
-    - git config user.email "ci-bot@gitlab"
-    - git config user.name "CI Bot"
   script: |
     set -e
     VERSION="$(cat VERSION)"
@@ -98,6 +81,6 @@ bump-helm-and-tag:
 
     # Пушим коммит и теги через SSH deploy key
     GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin "HEAD:${CI_COMMIT_REF_NAME}"
-    GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin --force "refs/tags/v${VERSION}"
+    GIT_SSH_COMMAND='ssh -o StrictHostKeyChecking=yes' git push origin --tags
   only:
     - main
