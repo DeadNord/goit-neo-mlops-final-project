@@ -2,29 +2,29 @@
 
 stages: [retrain, build, deploy]
 
-# Блок для джоб с Docker-in-Docker через Dependency Proxy
-.docker-with-proxy: &docker-with-proxy
-  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24"
-  services:
-    - name: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24-dind"
-      command: ["--tls=false", "--mtu=1460"]
-  variables:
-    DOCKER_TLS_CERTDIR: "" # нужен для dind
-  before_script:
-    # Логин в Container Registry (для push готового образа)
-    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
-    # Логин в Dependency Proxy (для pull базовых образов через кеш GitLab)
-    - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "$CI_DEPENDENCY_PROXY_SERVER"
-
+# Общие переменные
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
+  DOCKER_TLS_CERTDIR: "" # нужно для docker:dind
   GIT_STRATEGY: fetch
   GIT_DEPTH: "0"
 
-# ---- 1) Обучение (артефакт модели) ----
+# Якорь для джобов, где нужен docker-in-docker
+.docker-dind: &docker-dind
+  image: docker:24
+  services:
+    - name: docker:24-dind
+      command: ["--tls=false", "--mtu=1460"]
+  before_script:
+    # 1) Логин в Docker Hub (чтобы тянуть базовые образы без лимитов)
+    - echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+    # 2) Логин в GitLab Container Registry (чтобы пушить собранный образ)
+    - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
+
+# ---- 1) Обучение модели (артефакт) ----
 retrain-model:
   stage: retrain
-  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
+  image: python:3.11-slim
   script:
     - pip install -r app/requirements.txt
     - python model/train.py
@@ -37,25 +37,24 @@ retrain-model:
 # ---- 2) Сборка и push Docker-образа ----
 build-image:
   stage: build
-  <<: *docker-with-proxy
+  <<: *docker-dind
   needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
-    # Собираем, подтягивая базовый python через Dependency Proxy
+    # Собираем образ. Базовый python:3.11-slim тянется из Docker Hub (мы уже залогинились выше)
     - docker build --pull \
       -f docker/Dockerfile.app \
-      --build-arg PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim" \
+      --build-arg PYTHON_IMAGE="python:3.11-slim" \
       -t "$IMAGE:$VERSION" .
     - docker push "$IMAGE:$VERSION"
   only: [main]
 
-# ---- 3) Обновление Helm-версий и тег в git ----
+# ---- 3) Обновляем Helm и пушим тег в этот же репо (SSH deploy key) ----
 bump-helm-and-tag:
   stage: deploy
-  image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:3.19"
+  image: alpine:3.19
   before_script:
     - apk add --no-cache git openssh-client sed
-    # SSH key из переменной DEPLOY_SSH_KEY (тип Variable или File)
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - |
       if [ -f "$DEPLOY_SSH_KEY" ]; then
@@ -66,7 +65,6 @@ bump-helm-and-tag:
     - chmod 600 ~/.ssh/id_ed25519
     - eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519
     - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.com >> ~/.ssh/known_hosts
-    # Переходим на SSH и подтягиваем историю/теги
     - git remote set-url origin "git@gitlab.com:goit-neo/mlops-final-project.git"
     - git fetch --all --tags
     - git checkout -B "${CI_COMMIT_REF_NAME}"
@@ -77,7 +75,6 @@ bump-helm-and-tag:
     set -e
     VERSION="$(cat VERSION)"
 
-    # Обновляем Helm chart
     sed -i -E 's/^( *tag:).*/\1 '"$VERSION"'/' helm/values.yaml
     sed -i -E 's/^( *appVersion:).*/\1 '"$VERSION"'/' helm/Chart.yaml
 
