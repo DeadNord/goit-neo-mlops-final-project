@@ -11,10 +11,10 @@ configMapGenerator:
       - prometheus-datasource.yaml=datasources/prometheus-datasource.yaml
     options:
       labels:
-        grafana_datasource: "true"
+        grafana_datasource: "1"
   - name: aiops-dashboard
     files:
       - aiops-dashboard.json=dashboards/aiops-dashboard.json
     options:
       labels:
-        grafana_dashboard: "true"
+        grafana_dashboard: "1"
