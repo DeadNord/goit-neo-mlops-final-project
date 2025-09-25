@@ -3,7 +3,7 @@ fullnameOverride: ""
 
 image:
   repository: registry.gitlab.com/goit-neo/mlops-final-project/aiops-quality-service
-  tag: "0.1.5"
+  tag: "0.1.6"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
