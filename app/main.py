@@ -5,7 +5,7 @@ import numpy as np
 from fastapi import BackgroundTasks, FastAPI
 from pydantic import BaseModel
 from prometheus_fastapi_instrumentator import Instrumentator
-from prometheus_client import Counter, Histogram
+from prometheus_client import Counter, Histogram, REGISTRY
 from .model_io import load_model
 from .drift import get_drift_detector
 from .gitlab_client import GitLabTriggerError, trigger_gitlab_pipeline
@@ -44,13 +44,23 @@ if GITLAB_TRIGGER_ENABLED and not (GITLAB_PROJECT_ID and GITLAB_TRIGGER_TOKEN):
     )
 
 REQUESTS_COUNTER = Counter(
-    "inference_requests_total", "Total inference requests", ["app"]
+    "inference_requests_total",
+    "Total inference requests",
+    ["app"],
+    registry=REGISTRY,
 )
-DRIFT_COUNTER = Counter("drift_events_total", "Total drift events", ["app"])
-LATENCY_HIST = Histogram("inference_latency_seconds", "Inference latency", ["app"])
+DRIFT_COUNTER = Counter(
+    "drift_events_total", "Total drift events", ["app"], registry=REGISTRY
+)
+LATENCY_HIST = Histogram(
+    "inference_latency_seconds",
+    "Inference latency",
+    ["app"],
+    registry=REGISTRY,
+)
 
 app = FastAPI(title=APP_NAME)
-Instrumentator().instrument(app).expose(app)  # /metrics
+Instrumentator(registry=REGISTRY).instrument(app).expose(app)  # /metrics
 
 model = load_model()
 detector = get_drift_detector() if ENABLE_DRIFT else None
