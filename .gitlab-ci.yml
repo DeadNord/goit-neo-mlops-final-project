@@ -2,25 +2,26 @@
 
 stages: [retrain, build, deploy]
 
-# Всегда используем Dependency Proxy для образов раннера и dind
-# (не через переменные-посредники, а напрямую)
-.default-docker: &default-docker
+# Блок для джоб с Docker-in-Docker через Dependency Proxy
+.docker-with-proxy: &docker-with-proxy
   image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24"
   services:
     - name: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/docker:24-dind"
       command: ["--tls=false", "--mtu=1460"]
+  variables:
+    DOCKER_TLS_CERTDIR: "" # нужен для dind
   before_script:
-    # Логин в GitLab Container Registry для пуша итогового образа
+    # Логин в Container Registry (для push готового образа)
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
-    # Логин в Dependency Proxy (чтобы тянуть docker:24*, python:3.11-slim и т.д.)
+    # Логин в Dependency Proxy (для pull базовых образов через кеш GitLab)
     - docker login -u gitlab-ci-token -p "$CI_JOB_TOKEN" "$CI_DEPENDENCY_PROXY_SERVER"
 
 variables:
   IMAGE: "$CI_REGISTRY_IMAGE/aiops-quality-service"
-  DOCKER_TLS_CERTDIR: "" # для docker:dind
   GIT_STRATEGY: fetch
   GIT_DEPTH: "0"
 
+# ---- 1) Обучение (артефакт модели) ----
 retrain-model:
   stage: retrain
   image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim"
@@ -33,12 +34,14 @@ retrain-model:
   when: manual
   only: [main]
 
+# ---- 2) Сборка и push Docker-образа ----
 build-image:
   stage: build
-  <<: *default-docker
+  <<: *docker-with-proxy
   needs: ["retrain-model"]
   script:
     - VERSION="$(cat VERSION)"
+    # Собираем, подтягивая базовый python через Dependency Proxy
     - docker build --pull \
       -f docker/Dockerfile.app \
       --build-arg PYTHON_IMAGE="$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/python:3.11-slim" \
@@ -46,11 +49,13 @@ build-image:
     - docker push "$IMAGE:$VERSION"
   only: [main]
 
+# ---- 3) Обновление Helm-версий и тег в git ----
 bump-helm-and-tag:
   stage: deploy
   image: "$CI_DEPENDENCY_PROXY_GROUP_IMAGE_PREFIX/alpine:3.19"
   before_script:
     - apk add --no-cache git openssh-client sed
+    # SSH key из переменной DEPLOY_SSH_KEY (тип Variable или File)
     - mkdir -p ~/.ssh && chmod 700 ~/.ssh
     - |
       if [ -f "$DEPLOY_SSH_KEY" ]; then
@@ -59,9 +64,9 @@ bump-helm-and-tag:
         printf "%s\n" "$DEPLOY_SSH_KEY" > ~/.ssh/id_ed25519
       fi
     - chmod 600 ~/.ssh/id_ed25519
-    - eval "$(ssh-agent -s)"
-    - ssh-add ~/.ssh/id_ed25519
+    - eval "$(ssh-agent -s)" && ssh-add ~/.ssh/id_ed25519
     - ssh-keyscan -t rsa,ecdsa,ed25519 gitlab.com >> ~/.ssh/known_hosts
+    # Переходим на SSH и подтягиваем историю/теги
     - git remote set-url origin "git@gitlab.com:goit-neo/mlops-final-project.git"
     - git fetch --all --tags
     - git checkout -B "${CI_COMMIT_REF_NAME}"
@@ -72,8 +77,9 @@ bump-helm-and-tag:
     set -e
     VERSION="$(cat VERSION)"
 
-    sed -i -E 's/^( *tag:).*/\1 "'"$VERSION"'"/' helm/values.yaml
-    sed -i -E 's/^( *appVersion:).*/\1 "'"$VERSION"'"/' helm/Chart.yaml
+    # Обновляем Helm chart
+    sed -i -E 's/^( *tag:).*/\1 '"$VERSION"'/' helm/values.yaml
+    sed -i -E 's/^( *appVersion:).*/\1 '"$VERSION"'/' helm/Chart.yaml
 
     git add helm/values.yaml helm/Chart.yaml
     git commit -m "chore: bump helm to ${VERSION}" || echo "nothing to commit"
