@@ -59,6 +59,12 @@ LATENCY_HIST = Histogram(
     registry=REGISTRY,
 )
 
+# Pre-initialize metric series so they are visible in Prometheus/Grafana dashboards
+# even before any inference requests are processed.
+REQUESTS_COUNTER.labels(app=APP_NAME)
+DRIFT_COUNTER.labels(app=APP_NAME)
+LATENCY_HIST.labels(app=APP_NAME)
+
 app = FastAPI(title=APP_NAME)
 Instrumentator(registry=REGISTRY).instrument(app).expose(app)  # /metrics
 
