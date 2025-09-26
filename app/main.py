@@ -10,6 +10,9 @@ from .model_io import load_model
 from .drift import get_drift_detector
 from .gitlab_client import GitLabTriggerError, trigger_gitlab_pipeline
 
+import time
+import threading
+
 logging.basicConfig(level=os.getenv("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("inference")
 
@@ -21,6 +24,13 @@ GITLAB_PROJECT_ID = os.getenv("GITLAB_PROJECT_ID")
 GITLAB_TRIGGER_TOKEN = os.getenv("GITLAB_TRIGGER_TOKEN")
 GITLAB_TRIGGER_REF = os.getenv("GITLAB_TRIGGER_REF", "main")
 GITLAB_TRIGGER_TIMEOUT = int(os.getenv("GITLAB_TRIGGER_TIMEOUT", "10"))
+
+# Минимальный интервал между автозапусками retrain в секундах
+MIN_RETRAIN_INTERVAL = int(os.getenv("MIN_RETRAIN_INTERVAL_SECONDS", "300"))
+
+_last_trigger_ts = 0.0
+_trigger_lock = threading.Lock()
+_trigger_in_flight = False
 
 
 def _parse_variables(raw: str) -> Dict[str, str]:
@@ -114,12 +124,40 @@ def _trigger_retrain_background():
 
 
 def _schedule_retrain(background_tasks: BackgroundTasks):
+    global _last_trigger_ts, _trigger_in_flight
+
     if not GITLAB_TRIGGER_ENABLED:
         return
     if not (GITLAB_PROJECT_ID and GITLAB_TRIGGER_TOKEN):
         logger.error("Drift detected but GitLab trigger is not fully configured.")
         return
-    background_tasks.add_task(_trigger_retrain_background)
+
+    now = time.monotonic()
+    with _trigger_lock:
+        # Ограничение по частоте
+        if now - _last_trigger_ts < MIN_RETRAIN_INTERVAL:
+            logger.info(
+                "Drift detected but cooldown not passed (%.0fs left). Skipping trigger.",
+                MIN_RETRAIN_INTERVAL - (now - _last_trigger_ts),
+            )
+            return
+        # Не запускать несколько одновременно
+        if _trigger_in_flight:
+            logger.info("Drift detected but trigger already in flight. Skipping.")
+            return
+
+        _trigger_in_flight = True
+        _last_trigger_ts = now
+
+    def _wrapped():
+        global _trigger_in_flight
+        try:
+            _trigger_retrain_background()
+        finally:
+            with _trigger_lock:
+                _trigger_in_flight = False
+
+    background_tasks.add_task(_wrapped)
     logger.info("Drift detected → scheduled GitLab retrain pipeline trigger.")
 
 

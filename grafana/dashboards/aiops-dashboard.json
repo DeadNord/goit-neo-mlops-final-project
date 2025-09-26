@@ -19,7 +19,8 @@
             "title": "Drift events (1h)",
             "targets": [
                 {
-                    "expr": "increase(drift_events_total[1h])"
+                    "expr": "sum by (namespace, app) (increase(drift_events_total[1h]))",
+                    "legendFormat": "{{app}}"
                 }
             ]
         },
@@ -28,7 +29,8 @@
             "title": "Latency p90",
             "targets": [
                 {
-                    "expr": "histogram_quantile(0.90, sum by (le, app) (rate(inference_latency_seconds_bucket[5m])))"
+                    "expr": "histogram_quantile(0.90, sum by (le, app) (rate(inference_latency_seconds_bucket[5m])))",
+                    "legendFormat": "p90 {{app}}"
                 }
             ]
         }
