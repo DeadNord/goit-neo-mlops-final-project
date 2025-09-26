@@ -3,7 +3,7 @@ fullnameOverride: ""
 
 image:
   repository: registry.gitlab.com/goit-neo/mlops-final-project/aiops-quality-service
-  tag: "0.2.4"
+  tag: "0.2.5"
   pullPolicy: IfNotPresent
 
 replicaCount: 1
@@ -22,7 +22,7 @@ env:
   - name: DRIFT_P_VALUE
     value: "0.05"
   - name: GITLAB_TRIGGER_ENABLED
-    value: "false"
+    value: "true"
   - name: GITLAB_BASE_URL
     value: "https://gitlab.com"
   - name: GITLAB_PROJECT_ID
@@ -34,10 +34,7 @@ env:
   - name: GITLAB_TRIGGER_VARIABLES
     value: ""
 
-podAnnotations:
-  prometheus.io/scrape: "true"
-  prometheus.io/path: "/metrics"
-  prometheus.io/port: "8000"
+podAnnotations: {}
 
 resources:
   requests:

@@ -30,6 +30,16 @@ spec:
             - name: {{ .name }}
               value: {{ .value | quote }}
 {{- end }}
+            - name: GITLAB_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-gitlab-trigger
+                  key: GITLAB_PROJECT_ID
+            - name: GITLAB_TRIGGER_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: aiops-gitlab-trigger
+                  key: GITLAB_TRIGGER_TOKEN
           readinessProbe:
             httpGet: { path: /health, port: 8000 }
             initialDelaySeconds: 3

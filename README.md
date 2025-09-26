@@ -4,6 +4,59 @@ FastAPI-инференс + метрики Prometheus + логи Loki/Promtail + 
 Деплой и платформа (Prometheus/Grafana/Loki) — через Argo CD App-of-Apps.
 CI GitLab: retrain → build → bump Helm → ArgoCD авто-redeploy.
 
+## Структура проекта
+
+```
+.env.example
+.gitlab-ci.yml
+.prettierignore
+.pylintrc
+LICENSE
+Makefile
+README.md
+VERSION
+app/
+  __init__.py
+  drift.py
+  gitlab_client.py
+  main.py
+  model_io.py
+  requirements.txt
+argocd/
+  root-application.yaml
+  apps/
+    aiops-quality-service.yaml
+    grafana-dashboards.yaml
+    kube-prometheus-stack.yaml
+    loki-stack.yaml
+docker/
+  Dockerfile.app
+  Dockerfile.retrain
+grafana/
+  kustomization.yaml
+  dashboards/
+    aiops-dashboard.json
+  datasources/
+    prometheus-datasource.yaml
+helm/
+  Chart.yaml
+  values.yaml
+  templates/
+    _helpers.tpl
+    deployment.yaml
+    hpa.yaml
+    service.yaml
+    servicemonitor.yaml
+loki/
+  values.yaml
+model/
+  train.py
+prometheus/
+  values.yaml
+promtail/
+  values.yaml
+```
+
 ## Архитектура
 
 Argo CD App-of-Apps: `argocd/root-application.yaml` указывает на `argocd/apps/*`:
@@ -30,6 +83,18 @@ CI/CD (GitLab): retrain → build → bump helm → tag → auto-sync
 - Установлен Argo CD в кластере (namespace: argocd)
 - Доступ к Git-репозиторию этой ветки: `main`
 - Образы публикуются в ваш контейнерный реестр (обновите `helm/values.yaml.image.repository`)
+- Внести креды в .env и GitLab Variables.
+
+```bash
+set -a && source .env && set +a
+kubectl -n aiops create secret generic aiops-gitlab-trigger \
+  --from-literal=GITLAB_PROJECT_ID="${GITLAB_PROJECT_ID:?missing}" \
+  --from-literal=GITLAB_TRIGGER_TOKEN="${GITLAB_TRIGGER_TOKEN:?missing}" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+kubectl -n aiops get secret aiops-gitlab-trigger -o jsonpath='{.data.GITLAB_PROJECT_ID}' | base64 -d; echo
+kubectl -n aiops get secret aiops-gitlab-trigger -o jsonpath='{.data.GITLAB_TRIGGER_TOKEN}' | base64 -d; echo
+```
 
 ## Быстрый запуск (одной командой)
 
@@ -158,13 +223,13 @@ curl -X POST http://localhost:8000/predict   -H "Content-Type: application/json"
 
 Сервис умеет дергать GitLab trigger API при обнаружении дрейфа. Конфигурация задаётся переменными окружения (см. `helm/values.yaml`):
 
-| Переменная | Назначение |
-| --- | --- |
-| `GITLAB_TRIGGER_ENABLED` | `true` — включить вызов API |
-| `GITLAB_BASE_URL` | URL GitLab (по умолчанию `https://gitlab.com`) |
-| `GITLAB_PROJECT_ID` | ID проекта или `group/project` |
-| `GITLAB_TRIGGER_TOKEN` | Trigger Token из настроек CI/CD |
-| `GITLAB_TRIGGER_REF` | Ветка для пайплайна (по умолчанию `main`) |
+| Переменная                 | Назначение                                         |
+| -------------------------- | -------------------------------------------------- |
+| `GITLAB_TRIGGER_ENABLED`   | `true` — включить вызов API                        |
+| `GITLAB_BASE_URL`          | URL GitLab (по умолчанию `https://gitlab.com`)     |
+| `GITLAB_PROJECT_ID`        | ID проекта или `group/project`                     |
+| `GITLAB_TRIGGER_TOKEN`     | Trigger Token из настроек CI/CD                    |
+| `GITLAB_TRIGGER_REF`       | Ветка для пайплайна (по умолчанию `main`)          |
 | `GITLAB_TRIGGER_VARIABLES` | Доп. переменные CI в формате `KEY1=VAL1,KEY2=VAL2` |
 
 После включения (`GITLAB_TRIGGER_ENABLED=true` + заполненные `GITLAB_PROJECT_ID`/`GITLAB_TRIGGER_TOKEN`) сервис при дрейфе запускает фоновой запрос к GitLab. В логах появится сообщение `Drift detected → scheduled GitLab retrain pipeline trigger.`
@@ -205,6 +270,10 @@ done
 
 ```bash
 curl -s http://127.0.0.1:8000/metrics | grep -E 'drift_events_total|inference_requests_total'
+```
++ Проверить в логах факт дрифта:
+```bash
+kubectl -n aiops logs -l app=aiops-quality-service -f --tail=200
 ```
 
 5. В Grafana на дашборде «AIOps Quality Service» увидите рост `inference_requests_total`, события `drift_events_total` и изменение latency.
