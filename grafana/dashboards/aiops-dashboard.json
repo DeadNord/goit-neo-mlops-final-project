@@ -9,7 +9,8 @@
             "title": "Requests/min",
             "targets": [
                 {
-                    "expr": "sum(rate(inference_requests_total[5m]))"
+                    "expr": "sum by (app) (increase(drift_events_total[1h]))",
+                    "legendFormat": "{{app}}"
                 }
             ]
         },
